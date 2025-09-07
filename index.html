@@ -5,54 +5,55 @@
 <title>Faktura VAT - PDF profesjonalny</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <style>
-body {font-family: Arial, sans-serif; max-width:900px; margin:40px auto; padding:20px; border:1px solid #ccc; border-radius:12px;}
+body {font-family: Arial, sans-serif; max-width:800px; margin:40px auto; padding:20px; border:1px solid #ccc; border-radius:12px;}
 input {margin:5px 0; padding:8px; width: calc(100% - 20px);}
 button {margin:10px 5px; padding:10px 15px; background:#007bff; color:white; border:none; border-radius:6px; cursor:pointer;}
 button:hover {background:#0056b3;}
 #products {margin-top:15px;}
 .product {margin:5px 0; display:flex; justify-content:space-between; align-items:center;}
-.remove-btn {background:red; padding:5px 10px; border-radius:4px;}
+.remove-btn {background:red; padding:5px 10px; border-radius:4px; color:white; cursor:pointer;}
 #invoice-preview {margin-top:30px; padding:20px; border:2px dashed #666; border-radius:8px; background:#f9f9f9;}
-table {border-collapse: collapse; width: 100%; margin-top:10px;}
+table {border-collapse: collapse; width: 100%; margin-bottom:15px;}
 table, th, td {border: 1px solid black; padding: 4px; text-align: left; font-size:10pt;}
 ul#nipList {border:1px solid #ccc; max-height:100px; overflow-y:auto; margin:0; padding:0; list-style:none;}
 ul#nipList li {padding:5px; cursor:pointer;}
 ul#nipList li:hover {background:#eee;}
-#clientManager {display:none; border:2px solid #333; padding:20px; margin-top:20px; border-radius:8px; background:#f1f1f1;}
-#clientManager h3 {margin-top:0;}
-.client-row {display:flex; justify-content:space-between; padding:5px; border-bottom:1px solid #ccc;}
-.client-row button {margin-left:5px; padding:4px 8px; font-size:10pt;}
+/* Modal */
+.modal {display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5);}
+.modal-content {background:#fff; margin:10% auto; padding:20px; border-radius:8px; width:600px; max-height:70vh; overflow-y:auto;}
+.modal-content h3 {margin-top:0;}
+.close-btn {float:right; cursor:pointer; font-weight:bold; font-size:18px; color:red;}
+.client-item {border-bottom:1px solid #ddd; padding:8px 0;}
+.client-actions button {margin-left:5px; font-size:12px; padding:5px 8px;}
 </style>
 </head>
 <body>
 
 <h1>Generator faktury VAT</h1>
 
+<!-- Dane sprzedawcy -->
 <h2>Dane sprzedawcy</h2>
 <table>
-<tr><td>Nazwa:</td><td>BeeElectronics</td></tr>
-<tr><td>Adres:</td><td>Łódź, ul. Malinowa 15 93-545</td></tr>
-<tr><td>NIP:</td><td>50231458</td></tr>
+  <tr><td>Nazwa firmy:</td><td>BeeElectronic</td></tr>
+  <tr><td>Adres:</td><td>Warszawa, ul. Przykladowa 1</td></tr>
+  <tr><td>NIP:</td><td>50231458</td></tr>
 </table>
 
-<h2>Dane nabywcy <button onclick="showClientManager()">Lista klientów</button></h2>
+<h2 style="display:flex;justify-content:space-between;align-items:center;">
+  Dane nabywcy
+  <button id="manageClientsBtn" type="button">Zarzadzaj klientami</button>
+</h2>
 <input id="clientName" type="text" placeholder="Imie i nazwisko">
 <input id="clientAddress" type="text" placeholder="Adres">
 <input id="clientNIP" type="text" placeholder="NIP">
 <ul id="nipList"></ul>
 
-<div id="clientManager">
-  <h3>Zapisani klienci</h3>
-  <div id="clientList"></div>
-  <button onclick="hideClientManager()">Zamknij</button>
-</div>
-
 <h2>Produkty</h2>
 <div>
-<input id="name" type="text" placeholder="Nazwa produktu">
-<input id="price" type="number" placeholder="Cena netto (PLN)">
-<input id="quantity" type="number" placeholder="Ilosc" value="1">
-<button onclick="addProduct()">Dodaj produkt</button>
+  <input id="name" type="text" placeholder="Nazwa produktu">
+  <input id="price" type="number" placeholder="Cena netto (PLN)">
+  <input id="quantity" type="number" placeholder="Ilosc" value="1">
+  <button id="addBtn" type="button" onclick="addProduct()">Dodaj produkt</button>
 </div>
 
 <div id="products"></div>
@@ -64,8 +65,23 @@ ul#nipList li:hover {background:#eee;}
 
 <div id="invoice-preview" style="display:none;"></div>
 
+<!-- Modal klientow -->
+<div id="clientsModal" class="modal">
+  <div class="modal-content">
+    <span class="close-btn" id="closeClientsModal">&times;</span>
+    <h3>Lista klientow</h3>
+    <div id="clientsList"></div>
+    <h4>Dodaj/Edytuj klienta</h4>
+    <input id="modalClientNIP" type="text" placeholder="NIP">
+    <input id="modalClientName" type="text" placeholder="Imie i nazwisko">
+    <input id="modalClientAddress" type="text" placeholder="Adres">
+    <button id="saveClientBtn">Zapisz klienta</button>
+  </div>
+</div>
+
 <script>
 let invoice = {products: []};
+let editingNIP = null;
 
 function replacePolishChars(str){
   const map={"ą":"a","ć":"c","ę":"e","ł":"l","ń":"n","ó":"o","ś":"s","ż":"z","ź":"z",
@@ -81,7 +97,7 @@ function getNextInvoiceNumber(){
   return `FV/${year}/${String(counter).padStart(3,'0')}`;
 }
 
-function addProduct(){
+window.addProduct = function(){
   const name=document.getElementById("name").value;
   const price=parseFloat(document.getElementById("price").value);
   const quantity=parseInt(document.getElementById("quantity").value);
@@ -171,26 +187,13 @@ function showInvoice(){
   const invoiceNumber = getNextInvoiceNumber();
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({unit:"pt",format:"a4"});
-  addPageContent(doc, invoiceNumber, "ORYGINAL");
-  const blobURL = doc.output("bloburl");
-  document.getElementById("invoice-preview").style.display="block";
-  document.getElementById("invoice-preview").innerHTML = `<iframe src="${blobURL}" style="width:100%;height:600px;"></iframe>`;
+  generatePDF(invoiceNumber,"ORYGINAL",doc);
+  const previewDiv = document.getElementById("invoice-preview");
+  previewDiv.style.display="block";
+  previewDiv.innerHTML = `<iframe style="width:100%;height:600px;" src="${doc.output('datauristring')}"></iframe>`;
 }
 
-function generatePDFCombined(invoiceNumber){
-  const { jsPDF } = window.jspdf;
-  const doc = new jsPDF({unit:"pt",format:"a4"});
-  addPageContent(doc, invoiceNumber, "ORYGINAL");
-  doc.addPage();
-  addPageContent(doc, invoiceNumber, "KOPIA");
-  doc.autoPrint();
-  window.open(doc.output('bloburl'), '_blank');
-  const filename = `Faktura_${invoiceNumber}.pdf`;
-  doc.save(filename);
-  saveClient();
-}
-
-function addPageContent(doc, invoiceNumber, fileType){
+function generatePDF(invoiceNumber,type,doc){
   const clientName = replacePolishChars(document.getElementById("clientName").value);
   const clientAddress = replacePolishChars(document.getElementById("clientAddress").value);
   const clientNIP = replacePolishChars(document.getElementById("clientNIP").value);
@@ -205,28 +208,29 @@ function addPageContent(doc, invoiceNumber, fileType){
   let y = 40;
   doc.setFont("helvetica","bold");
   doc.setFontSize(14);
-  doc.text(`Faktura VAT - ${fileType}`, 300, y, {align:"center"});
+  doc.text(`Faktura VAT - ${type}`, 300, y, {align:"center"});
+
   doc.setFont("helvetica","normal");
   doc.setFontSize(10);
 
-  // Dane sprzedawcy
-  const sellerY = y+20;
-  doc.rect(40, sellerY, 500, 40);
-  doc.text("Sprzedawca: BeeElectronics", 45, sellerY+15);
-  doc.text("Adres: Łódź, ul. Malinowa 15 93-545", 200, sellerY+15);
-  doc.text("NIP: 50231458", 450, sellerY+15);
+  y+=20;
+  doc.text("Sprzedawca:",40,y);
+  doc.text("BeeElectronic",120,y);
+  y+=12; doc.text("Adres: Warszawa, ul. Przykladowa 1",120,y);
+  y+=12; doc.text("NIP: 50231458",120,y);
 
-  // Dane klienta
-  const clientY = sellerY+60;
-  doc.rect(40, clientY, 500, 40);
-  doc.text("Klient:", 45, clientY + 15);
-  doc.text("Adres:", 200, clientY + 15);
-  doc.text("NIP:", 450, clientY + 15);
-  doc.text(clientName, 45, clientY + 30);
-  doc.text(clientAddress, 200, clientY + 30);
-  doc.text(clientNIP, 450, clientY + 30);
+  doc.rect(380,60,180,50);
+  doc.text(`Nr faktury: ${invoiceNumber}`,390,75);
+  doc.text(`Data sprzedazy: ${today}`,390,90);
+  doc.text(`Termin platnosci: ${paymentDate}`,390,105);
 
-  let rowY = clientY + 60;
+  y+=40;
+  doc.text("Nabywca:",40,y);
+  doc.text(`Nazwa: ${clientName}`,120,y);
+  y+=12; doc.text(`Adres: ${clientAddress}`,120,y);
+  y+=12; doc.text(`NIP: ${clientNIP}`,120,y);
+
+  let rowY = y+30;
   doc.setFont("helvetica","bold");
   headers.forEach((h,i)=>{
     doc.rect(40 + colWidths.slice(0,i).reduce((a,b)=>a+b,0), rowY, colWidths[i], 20);
@@ -237,6 +241,10 @@ function addPageContent(doc, invoiceNumber, fileType){
 
   let totalNet = 0;
   invoice.products.forEach((p,i)=>{
+    if(rowY > 700){ 
+      doc.addPage();
+      rowY = 40;
+    }
     let nameLines = splitText(replacePolishChars(p.name), 20);
     const net = p.price*p.quantity;
     const vat = net*0.23;
@@ -245,7 +253,7 @@ function addPageContent(doc, invoiceNumber, fileType){
     const rowHeight = 20*nameLines.length;
 
     if(i % 2 === 1){
-      doc.setFillColor(200);
+      doc.setFillColor(230);
       doc.rect(40,rowY,colWidths.reduce((a,b)=>a+b,0),rowHeight,'F');
     }
 
@@ -268,56 +276,89 @@ function addPageContent(doc, invoiceNumber, fileType){
   doc.text(`Razem netto: ${totalNet.toFixed(2)} PLN`,40,rowY);
   doc.text(`VAT 23%: ${totalVAT.toFixed(2)} PLN`,40,rowY+12);
   doc.text(`Brutto: ${totalGross.toFixed(2)} PLN`,40,rowY+24);
+
   rowY += 40;
   doc.text("Podpis osoby upowaznionej do wystawienia faktury:",40,rowY);
-  doc.text("Podpis osoby przyjmujacej fakture:",300,rowY);
-  doc.rect(40,rowY+10,150,50);
-  doc.text("Miejsce na pieczatke sprzedawcy", 45, rowY+75);
+  doc.text("Podpis osoby przyjmujacej fakture:",320,rowY);
+  doc.rect(40,rowY+10,180,50); 
+  doc.rect(320,rowY+10,180,50);
+
+  rowY+=70;
+  doc.rect(40,rowY,180,50);
+  doc.setFontSize(8);
+  doc.text("Pieczatka sprzedawcy", 45,rowY+45);
+  doc.setFontSize(10);
 }
 
-function showClientManager(){
-  const div=document.getElementById("clientList");
-  div.innerHTML="";
+document.getElementById("downloadBtn").addEventListener("click", ()=>{
+  const invoiceNumber = getNextInvoiceNumber();
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({unit:"pt",format:"a4"});
+  generatePDF(invoiceNumber,"ORYGINAL",doc);
+  doc.addPage();
+  generatePDF(invoiceNumber,"KOPIA",doc);
+  saveClient();
+  doc.save(`Faktura_${invoiceNumber}.pdf`);
+  doc.autoPrint();
+  window.open(doc.output('bloburl'), '_blank');
+});
+document.getElementById("showBtn").addEventListener("click", showInvoice);
+document.getElementById("clientNIP").addEventListener("input", searchClient);
+
+/* Modal obsluga */
+const modal=document.getElementById("clientsModal");
+document.getElementById("manageClientsBtn").onclick=()=>{renderClientsList();modal.style.display="block";}
+document.getElementById("closeClientsModal").onclick=()=>{modal.style.display="none";editingNIP=null;}
+window.onclick=(e)=>{if(e.target==modal){modal.style.display="none";editingNIP=null;}}
+
+function renderClientsList(){
   let clients = JSON.parse(localStorage.getItem("clients") || "{}");
+  const container=document.getElementById("clientsList");
+  container.innerHTML="";
   for(let nip in clients){
-    const row=document.createElement("div");
-    row.className="client-row";
-    row.innerHTML=`<span>${nip} - ${clients[nip].name}, ${clients[nip].address}</span>
-      <span>
+    const div=document.createElement("div");
+    div.classList.add("client-item");
+    div.innerHTML=`<b>${nip}</b> - ${clients[nip].name}, ${clients[nip].address}
+      <span class="client-actions">
         <button onclick="editClient('${nip}')">Edytuj</button>
         <button onclick="deleteClient('${nip}')">Usun</button>
       </span>`;
-    div.appendChild(row);
+    container.appendChild(div);
   }
-  document.getElementById("clientManager").style.display="block";
 }
-function hideClientManager(){
-  document.getElementById("clientManager").style.display="none";
-}
+
 function editClient(nip){
   let clients = JSON.parse(localStorage.getItem("clients") || "{}");
-  const newName=prompt("Nowa nazwa", clients[nip].name);
-  const newAddress=prompt("Nowy adres", clients[nip].address);
-  if(newName && newAddress){
-    clients[nip]={name:newName,address:newAddress};
-    localStorage.setItem("clients", JSON.stringify(clients));
-    showClientManager();
-  }
+  document.getElementById("modalClientNIP").value = nip;
+  document.getElementById("modalClientName").value = clients[nip].name;
+  document.getElementById("modalClientAddress").value = clients[nip].address;
+  editingNIP = nip;
 }
+
 function deleteClient(nip){
   let clients = JSON.parse(localStorage.getItem("clients") || "{}");
   delete clients[nip];
   localStorage.setItem("clients", JSON.stringify(clients));
-  showClientManager();
+  renderClientsList();
 }
 
-document.getElementById("showBtn").addEventListener("click", showInvoice);
-document.getElementById("downloadBtn").addEventListener("click", ()=>{
-  const invoiceNumber = getNextInvoiceNumber();
-  generatePDFCombined(invoiceNumber);
-});
-document.getElementById("clientNIP").addEventListener("input", searchClient);
-
+document.getElementById("saveClientBtn").onclick=()=>{
+  let clients = JSON.parse(localStorage.getItem("clients") || "{}");
+  const nip=document.getElementById("modalClientNIP").value;
+  const name=document.getElementById("modalClientName").value;
+  const address=document.getElementById("modalClientAddress").value;
+  if(nip && name && address){
+    clients[nip]={name,address};
+    localStorage.setItem("clients", JSON.stringify(clients));
+    renderClientsList();
+    document.getElementById("modalClientNIP").value="";
+    document.getElementById("modalClientName").value="";
+    document.getElementById("modalClientAddress").value="";
+    editingNIP=null;
+  }
+}
 </script>
+
 </body>
 </html>
+
