@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8">
+<title>Faktura VAT - PDF profesjonalny</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<style>
+body {font-family: Arial, sans-serif; max-width:900px; margin:40px auto; padding:20px; border:1px solid #ccc; border-radius:12px;}
+input {margin:5px 0; padding:8px; width: calc(100% - 20px);}
+button {margin:10px 5px; padding:10px 15px; background:#007bff; color:white; border:none; border-radius:6px; cursor:pointer;}
+button:hover {background:#0056b3;}
+#products {margin-top:15px;}
+.product {margin:5px 0; display:flex; justify-content:space-between; align-items:center;}
+.remove-btn {background:red; padding:5px 10px; border-radius:4px;}
+#invoice-preview {margin-top:30px; padding:20px; border:2px dashed #666; border-radius:8px; background:#f9f9f9;}
+table {border-collapse: collapse; width: 100%; margin-top:10px;}
+table, th, td {border: 1px solid black; padding: 4px; text-align: left; font-size:10pt;}
+ul#nipList {border:1px solid #ccc; max-height:100px; overflow-y:auto; margin:0; padding:0; list-style:none;}
+ul#nipList li {padding:5px; cursor:pointer;}
+ul#nipList li:hover {background:#eee;}
+#clientManager {display:none; border:2px solid #333; padding:20px; margin-top:20px; border-radius:8px; background:#f1f1f1;}
+#clientManager h3 {margin-top:0;}
+.client-row {display:flex; justify-content:space-between; padding:5px; border-bottom:1px solid #ccc;}
+.client-row button {margin-left:5px; padding:4px 8px; font-size:10pt;}
+</style>
+</head>
+<body>
+
+<h1>Generator faktury VAT</h1>
+
+<h2>Dane sprzedawcy</h2>
+<table>
+<tr><td>Nazwa:</td><td>BeeElectronic</td></tr>
+<tr><td>Adres:</td><td>Warszawa, ul. Elektronowa 15</td></tr>
+<tr><td>NIP:</td><td>50231458</td></tr>
+</table>
+
+<h2>Dane nabywcy <button onclick="showClientManager()">Lista klientów</button></h2>
+<input id="clientName" type="text" placeholder="Imie i nazwisko">
+<input id="clientAddress" type="text" placeholder="Adres">
+<input id="clientNIP" type="text" placeholder="NIP">
+<ul id="nipList"></ul>
+
+<div id="clientManager">
+  <h3>Zapisani klienci</h3>
+  <div id="clientList"></div>
+  <button onclick="hideClientManager()">Zamknij</button>
+</div>
+
+<h2>Produkty</h2>
+<div>
+<input id="name" type="text" placeholder="Nazwa produktu">
+<input id="price" type="number" placeholder="Cena netto (PLN)">
+<input id="quantity" type="number" placeholder="Ilosc" value="1">
+<button onclick="addProduct()">Dodaj produkt</button>
+</div>
+
+<div id="products"></div>
+
+<h2>Razem netto: <span id="total">0</span> PLN</h2>
+
+<button id="showBtn">Pokaz fakture</button>
+<button id="downloadBtn">Pobierz PDF (oryginal + kopia)</button>
+
+<div id="invoice-preview" style="display:none;"></div>
+
+<script>
+let invoice = {products: []};
+
+function replacePolishChars(str){
+  const map={"ą":"a","ć":"c","ę":"e","ł":"l","ń":"n","ó":"o","ś":"s","ż":"z","ź":"z",
+             "Ą":"A","Ć":"C","Ę":"E","Ł":"L","Ń":"N","Ó":"O","Ś":"S","Ż":"Z","Ź":"Z"};
+  return str.replace(/[ąćęłńóśżźĄĆĘŁŃÓŚŻŹ]/g,m=>map[m]||m);
+}
+
+function getNextInvoiceNumber(){
+  const year=new Date().getFullYear();
+  const key=`FV-${year}-counter`;
+  let counter=parseInt(localStorage.getItem(key))||1;
+  localStorage.setItem(key,counter+1);
+  return `FV/${year}/${String(counter).padStart(3,'0')}`;
+}
+
+function addProduct(){
+  const name=document.getElementById("name").value;
+  const price=parseFloat(document.getElementById("price").value);
+  const quantity=parseInt(document.getElementById("quantity").value);
+  if(!name || isNaN(price) || isNaN(quantity) || quantity <= 0){
+    alert("Podaj poprawne dane produktu!");
+    return;
+  }
+  invoice.products.push({name:name, price:price, quantity:quantity});
+  renderProducts();
+  document.getElementById("name").value="";
+  document.getElementById("price").value="";
+  document.getElementById("quantity").value="1";
+}
+
+function removeProduct(index){
+  invoice.products.splice(index,1);
+  renderProducts();
+}
+
+function renderProducts(){
+  const productsDiv = document.getElementById("products");
+  productsDiv.innerHTML = "";
+  let total = 0;
+  invoice.products.forEach((p,i)=>{
+    const div=document.createElement("div");
+    div.classList.add("product");
+    const lineTotal = p.price * p.quantity;
+    total += lineTotal;
+    div.innerHTML=`<span>${p.name} - ${p.price.toFixed(2)} PLN x ${p.quantity} = ${lineTotal.toFixed(2)} PLN</span>
+                   <button class="remove-btn" onclick="removeProduct(${i})">Usun</button>`;
+    productsDiv.appendChild(div);
+  });
+  document.getElementById("total").textContent = total.toFixed(2);
+}
+
+function splitText(str, maxLength){
+  if(str.length <= maxLength) return [str];
+  const lines = [];
+  let current = str;
+  while(current.length > maxLength){
+    let splitAt = current.lastIndexOf(' ', maxLength);
+    if(splitAt === -1) splitAt = maxLength;
+    lines.push(current.substring(0, splitAt));
+    current = current.substring(splitAt).trim();
+  }
+  if(current.length>0) lines.push(current);
+  return lines;
+}
+
+function saveClient(){
+  const clientName = document.getElementById("clientName").value;
+  const clientAddress = document.getElementById("clientAddress").value;
+  const clientNIP = document.getElementById("clientNIP").value;
+  if(clientName && clientAddress && clientNIP){
+    let clients = JSON.parse(localStorage.getItem("clients") || "{}");
+    clients[clientNIP] = {name: clientName, address: clientAddress};
+    localStorage.setItem("clients", JSON.stringify(clients));
+  }
+}
+
+function searchClient(){
+  const clientNIP = document.getElementById("clientNIP").value;
+  let clients = JSON.parse(localStorage.getItem("clients") || "{}");
+  const list = document.getElementById("nipList");
+  list.innerHTML = "";
+  if(!clientNIP) return;
+  for(let nip in clients){
+    if(nip.startsWith(clientNIP)){
+      const li = document.createElement("li");
+      li.textContent = `${nip} - ${clients[nip].name}`;
+      li.onclick = ()=>{
+        document.getElementById("clientNIP").value = nip;
+        document.getElementById("clientName").value = clients[nip].name;
+        document.getElementById("clientAddress").value = clients[nip].address;
+        list.innerHTML="";
+      };
+      list.appendChild(li);
+    }
+  }
+  if(clients[clientNIP]){
+    document.getElementById("clientName").value = clients[clientNIP].name;
+    document.getElementById("clientAddress").value = clients[clientNIP].address;
+  }
+}
+
+function showInvoice(){
+  const invoiceNumber = getNextInvoiceNumber();
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({unit:"pt",format:"a4"});
+  addPageContent(doc, invoiceNumber, "ORYGINAL");
+  const blobURL = doc.output("bloburl");
+  document.getElementById("invoice-preview").style.display="block";
+  document.getElementById("invoice-preview").innerHTML = `<iframe src="${blobURL}" style="width:100%;height:600px;"></iframe>`;
+}
+
+function generatePDFCombined(invoiceNumber){
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({unit:"pt",format:"a4"});
+  addPageContent(doc, invoiceNumber, "ORYGINAL");
+  doc.addPage();
+  addPageContent(doc, invoiceNumber, "KOPIA");
+  doc.autoPrint();
+  window.open(doc.output('bloburl'), '_blank');
+  const filename = `Faktura_${invoiceNumber}.pdf`;
+  doc.save(filename);
+  saveClient();
+}
+
+function addPageContent(doc, invoiceNumber, fileType){
+  const clientName = replacePolishChars(document.getElementById("clientName").value);
+  const clientAddress = replacePolishChars(document.getElementById("clientAddress").value);
+  const clientNIP = replacePolishChars(document.getElementById("clientNIP").value);
+  const today = replacePolishChars(new Date().toLocaleDateString());
+  const paymentDateObj = new Date();
+  paymentDateObj.setDate(new Date().getDate() + 14);
+  const paymentDate = replacePolishChars(paymentDateObj.toLocaleDateString());
+
+  const colWidths = [30, 130, 80, 50, 70, 60, 60];
+  const headers = ["Lp","Nazwa produktu","Cena jedn. netto","Ilosc","Wartosc netto","VAT 23%","Brutto"];
+
+  let y = 40;
+  doc.setFont("helvetica","bold");
+  doc.setFontSize(14);
+  doc.text(`Faktura VAT - ${fileType}`, 300, y, {align:"center"});
+  doc.setFont("helvetica","normal");
+  doc.setFontSize(10);
+
+  // Dane sprzedawcy
+  const sellerY = y+20;
+  doc.rect(40, sellerY, 500, 40);
+  doc.text("Sprzedawca: BeeElectronic", 45, sellerY+15);
+  doc.text("Adres: Warszawa, ul. Elektronowa 15", 200, sellerY+15);
+  doc.text("NIP: 50231458", 450, sellerY+15);
+
+  // Dane klienta
+  const clientY = sellerY+60;
+  doc.rect(40, clientY, 500, 40);
+  doc.text("Klient:", 45, clientY + 15);
+  doc.text("Adres:", 200, clientY + 15);
+  doc.text("NIP:", 450, clientY + 15);
+  doc.text(clientName, 45, clientY + 30);
+  doc.text(clientAddress, 200, clientY + 30);
+  doc.text(clientNIP, 450, clientY + 30);
+
+  let rowY = clientY + 60;
+  doc.setFont("helvetica","bold");
+  headers.forEach((h,i)=>{
+    doc.rect(40 + colWidths.slice(0,i).reduce((a,b)=>a+b,0), rowY, colWidths[i], 20);
+    doc.text(h, 42 + colWidths.slice(0,i).reduce((a,b)=>a+b,0), rowY+14);
+  });
+  doc.setFont("helvetica","normal");
+  rowY += 20;
+
+  let totalNet = 0;
+  invoice.products.forEach((p,i)=>{
+    let nameLines = splitText(replacePolishChars(p.name), 20);
+    const net = p.price*p.quantity;
+    const vat = net*0.23;
+    const gross = net*1.23;
+    totalNet += net;
+    const rowHeight = 20*nameLines.length;
+
+    if(i % 2 === 1){
+      doc.setFillColor(200);
+      doc.rect(40,rowY,colWidths.reduce((a,b)=>a+b,0),rowHeight,'F');
+    }
+
+    let x=40;
+    const rowValues = [`${i+1}`, nameLines[0], p.price.toFixed(2), p.quantity.toString(), net.toFixed(2), vat.toFixed(2), gross.toFixed(2)];
+    rowValues.forEach((v,j)=>{
+      doc.rect(x,rowY,colWidths[j],rowHeight);
+      doc.text(v,x+2,rowY+14);
+      x+=colWidths[j];
+    });
+    if(nameLines.length>1){
+      doc.text(nameLines[1], 40+colWidths[0]+2, rowY+28);
+    }
+    rowY += rowHeight;
+  });
+
+  const totalVAT = totalNet*0.23;
+  const totalGross = totalNet*1.23;
+  rowY += 10;
+  doc.text(`Razem netto: ${totalNet.toFixed(2)} PLN`,40,rowY);
+  doc.text(`VAT 23%: ${totalVAT.toFixed(2)} PLN`,40,rowY+12);
+  doc.text(`Brutto: ${totalGross.toFixed(2)} PLN`,40,rowY+24);
+  rowY += 40;
+  doc.text("Podpis osoby upowaznionej do wystawienia faktury:",40,rowY);
+  doc.text("Podpis osoby przyjmujacej fakture:",300,rowY);
+  doc.rect(40,rowY+10,150,50);
+  doc.text("Miejsce na pieczatke sprzedawcy", 45, rowY+75);
+}
+
+function showClientManager(){
+  const div=document.getElementById("clientList");
+  div.innerHTML="";
+  let clients = JSON.parse(localStorage.getItem("clients") || "{}");
+  for(let nip in clients){
+    const row=document.createElement("div");
+    row.className="client-row";
+    row.innerHTML=`<span>${nip} - ${clients[nip].name}, ${clients[nip].address}</span>
+      <span>
+        <button onclick="editClient('${nip}')">Edytuj</button>
+        <button onclick="deleteClient('${nip}')">Usun</button>
+      </span>`;
+    div.appendChild(row);
+  }
+  document.getElementById("clientManager").style.display="block";
+}
+function hideClientManager(){
+  document.getElementById("clientManager").style.display="none";
+}
+function editClient(nip){
+  let clients = JSON.parse(localStorage.getItem("clients") || "{}");
+  const newName=prompt("Nowa nazwa", clients[nip].name);
+  const newAddress=prompt("Nowy adres", clients[nip].address);
+  if(newName && newAddress){
+    clients[nip]={name:newName,address:newAddress};
+    localStorage.setItem("clients", JSON.stringify(clients));
+    showClientManager();
+  }
+}
+function deleteClient(nip){
+  let clients = JSON.parse(localStorage.getItem("clients") || "{}");
+  delete clients[nip];
+  localStorage.setItem("clients", JSON.stringify(clients));
+  showClientManager();
+}
+
+document.getElementById("showBtn").addEventListener("click", showInvoice);
+document.getElementById("downloadBtn").addEventListener("click", ()=>{
+  const invoiceNumber = getNextInvoiceNumber();
+  generatePDFCombined(invoiceNumber);
+});
+document.getElementById("clientNIP").addEventListener("input", searchClient);
+
+</script>
+</body>
+</html>
